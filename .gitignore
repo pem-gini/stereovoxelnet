@@ -3,3 +3,5 @@
 */ipynb_checkpoints/
 */zed_dataset/
 *.pyc
+
+scripts/net/visualization/output*

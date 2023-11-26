@@ -463,7 +463,7 @@ def lac():
 
     pl.close()
 
-lac()    
+# lac()    
 sgbm()
 voxel()
 gt()
@@ -472,20 +472,21 @@ gt()
 clip_gt = VideoFileClip(f"output-mov/{data_index}-gt.mov")
 clip_voxel = VideoFileClip(f"output-mov/{data_index}-voxel.mov")
 clip_sgbm = VideoFileClip(f"output-mov/{data_index}-sgbm.mov")
-clip_lac = VideoFileClip(f"output-mov/{data_index}-lac.mov")
+# clip_lac = VideoFileClip(f"output-mov/{data_index}-lac.mov")
 
 clip_gt_text = TextClip("Grount Truth", font="Times-Roman", color="Black", bg_color="White",
-                   fontsize=70).set_duration(clip_lac.duration)
+                   fontsize=70).set_duration(clip_sgbm.duration)
 clip_voxel_text = TextClip("Ours", font="Times-Roman", color="Black", bg_color="White",
-                   fontsize=70, stroke_color="Black", stroke_width=3).set_duration(clip_lac.duration)
+                   fontsize=70, stroke_color="Black", stroke_width=3).set_duration(clip_sgbm.duration)
 clip_sgbm_text = TextClip("SGBM", font="Times-Roman", color="Black", bg_color="White",
-                   fontsize=70).set_duration(clip_lac.duration)
+                   fontsize=70).set_duration(clip_sgbm.duration)
 clip_lac_text = TextClip("Lac-GwcNet", font="Times-Roman", color="Black", bg_color="White",
-                   fontsize=70).set_duration(clip_lac.duration)
+                   fontsize=70).set_duration(clip_sgbm.duration)
             
 vis_clip = clips_array([[clip_gt, clip_voxel],
                             [clip_gt_text, clip_voxel_text],
-                            [clip_sgbm, clip_lac],
-                            [clip_sgbm_text, clip_lac_text]], bg_color=(255,255,255))
+                            [clip_sgbm, clip_sgbm],
+                            [clip_sgbm_text, clip_voxel_text]
+                        ], bg_color=(255,255,255))
 
 vis_clip.write_videofile(f"output-mov/{data_index}-final.mp4")

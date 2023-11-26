@@ -4,7 +4,7 @@ sys.path.append('../')
 import os
 import torch.nn as nn
 from utils import *
-from utils.KittiColormap import *
+#from utils.KittiColormap import *
 from datasets.data_io import get_transform, read_all_lines
 from PIL import Image
 import pyvista
@@ -28,9 +28,9 @@ def load_disp(filename):
     return data
 
 datapath = "/home/chris/pl_ws/src/stereo_pl_nav/datasets/DS"
-left_img = load_image(os.path.join(datapath, left_filenames[data_index]))
-right_img = load_image(os.path.join(datapath, right_filenames[data_index]))
-disparity = load_disp(os.path.join(datapath, disp_filenames[data_index]))
+left_img = load_image('demo/left.jpg') #os.path.join(datapath, left_filenames[data_index]))
+right_img = load_image('demo/right.jpg') #os.path.join(datapath, right_filenames[data_index]))
+disparity = load_disp('demo/disparity.png') #os.path.join(datapath, disp_filenames[data_index]))
 left_frame = np.asarray(left_img)
 left_depth_rgb = left_frame[:, :, :3]
 
