@@ -1,0 +1,8 @@
+world_visualizer:
+  ros__parameters:
+    topic_img_left: /left/image_raw
+    topic_camera_left: /left/camera_info
+    topic_img_right: /right/image_raw
+    topic_camera_right: /right/camera_info
+    topic_disparity: /disparity
+    topic_world: /world

@@ -24,7 +24,10 @@ def load_image(filename):
 
 def load_disp(filename):
     data = Image.open(filename)
+    print(np.array(data, dtype=np.float32))
     data = np.array(data, dtype=np.float32) / 256.
+    print(data.shape)
+    print(data)
     return data
 
 datapath = "/home/chris/pl_ws/src/stereo_pl_nav/datasets/DS"

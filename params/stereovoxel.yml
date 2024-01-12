@@ -1,0 +1,10 @@
+stereovoxelnet:
+  ros__parameters:
+    debug: true
+    f_u: 365.68
+    baseline: 0.12
+    max_disparity: 192
+    target_frame: camera
+    topic_img_left: /left/image_raw
+    topic_img_right: /right/image_raw
+    topic_output: /stereo_cluster

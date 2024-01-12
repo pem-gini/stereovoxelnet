@@ -271,6 +271,7 @@ def voxel():
         with torch.no_grad():
             return model(sample_left.cuda(), sample_right.cuda(), voxel_disp)[0]
 
+    print(f'Img shape: {sample_left.shape}')
     voxel_pred = get_model_pred(voxel_model, sample_left, sample_right, vox_cost_vol_disps)
 
     grid_sizes = [8, 16, 32, 64]
