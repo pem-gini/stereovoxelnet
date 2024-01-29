@@ -1,5 +1,7 @@
 import rclpy
 from rclpy.node import Node
+from rclpy.serialization import serialize_message
+from rclpy.time import Time
 import os
 import yaml
 import torch
@@ -16,10 +18,11 @@ from rcl_interfaces.msg import ParameterType, ParameterDescriptor
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
 import logging
 import coloredlogs
-import time
+from datetime import datetime, timedelta
 from std_msgs.msg import Header
 from message_filters import TimeSynchronizer, Subscriber
 from stereo_msgs.msg import DisparityImage
+import rosbag2_py
 
 class CameraDummyNode(Node):
     def __init__(self):
@@ -27,6 +30,7 @@ class CameraDummyNode(Node):
         self.log("Initialiting Stereovoxel Camera Dummy Node...")
         ### ros2 params
         self.declare_parameter("debug", True)
+        self.declare_parameter("as_rosbag", False)
         self.declare_parameter("topic_img_left", None, ParameterDescriptor(type=ParameterType.PARAMETER_STRING))
         self.declare_parameter("topic_img_right", None, ParameterDescriptor(type=ParameterType.PARAMETER_STRING))
         self.declare_parameter("topic_camera_left", None, ParameterDescriptor(type=ParameterType.PARAMETER_STRING))
@@ -43,6 +47,7 @@ class CameraDummyNode(Node):
         self.topicDisparity: str = self.get_parameter("topic_disparity").value
         self.imgDir: str = self.get_parameter("img_dir").value
         self.framesPerSecond: float = self.get_parameter("frames_per_second").value
+        self.asRosbag: bool = self.get_parameter("as_rosbag").value
 
         self.bridge = CvBridge()
 
@@ -64,7 +69,46 @@ class CameraDummyNode(Node):
         self.cameraInfos: list[CameraInfo] = []
         self.readConfig()
 
-        self.create_timer(1.0 / self.framesPerSecond, self.publishFrame)
+        if self.asRosbag:
+            self.startTime = datetime.now()
+            self.writer = rosbag2_py.SequentialWriter()
+            storage_options = rosbag2_py._storage.StorageOptions(
+                uri='stero_image_bag',
+                storage_id='mcap')
+            converter_options = rosbag2_py._storage.ConverterOptions('', '')
+            self.writer.open(storage_options, converter_options)
+
+            topic_info = rosbag2_py._storage.TopicMetadata(
+                name=self.topicImgLeft,
+                type='sensor_msgs/msg/Image',
+                serialization_format='cdr')
+            self.writer.create_topic(topic_info)
+            topic_info = rosbag2_py._storage.TopicMetadata(
+                name=self.topicImgRight,
+                type='sensor_msgs/msg/Image',
+                serialization_format='cdr')
+            self.writer.create_topic(topic_info)
+            topic_info = rosbag2_py._storage.TopicMetadata(
+                name=self.topicDisparity,
+                type='sensor_msgs/msg/Image',
+                serialization_format='cdr')
+            self.writer.create_topic(topic_info)
+            topic_info = rosbag2_py._storage.TopicMetadata(
+                name=self.topicCameraLeft,
+                type='sensor_msgs/msg/CameraInfo',
+                serialization_format='cdr')
+            self.writer.create_topic(topic_info)
+            topic_info = rosbag2_py._storage.TopicMetadata(
+                name=self.topicCameraRight,
+                type='sensor_msgs/msg/CameraInfo',
+                serialization_format='cdr')
+            self.writer.create_topic(topic_info)
+
+            for _ in range(self.framesCnt):
+                self.publishFrame()
+        
+        else:
+            self.create_timer(1.0 / self.framesPerSecond, self.publishFrame)
 
     def log(self, msg):
         self.get_logger().info(msg)
@@ -102,21 +146,32 @@ class CameraDummyNode(Node):
         self.framesCnt = len(self.frames)
     
     def publishFrame(self):
-        timestamp = self.get_clock().now().to_msg()
-
-        if self.currentFrame < self.framesCnt:
+        currentFrame = self.currentFrame
+        if self.currentFrame < self.framesCnt-1:
             self.currentFrame += 1
         else:
             self.currentFrame = 0
 
-        frame = self.frames[self.currentFrame]
-        self.log(f'Load frame: {frame} ({self.currentFrame}/{self.framesCnt})')
+        timestamp = self.get_clock().now().to_msg()
+        if self.asRosbag:
+            timestamp = Time(seconds=(self.startTime + timedelta(seconds=self.currentFrame)).timestamp()).to_msg()
+
+        frame = self.frames[currentFrame]
+        self.log(f'Load frame: {frame} ({currentFrame}/{self.framesCnt}) ({timestamp})')
 
         # Load .png files as tensors
         imgLeft = cv2.imread(os.path.join(self.imgDirLeft, frame))
         imgRight = cv2.imread(os.path.join(self.imgDirRight, frame))
         imgDisparity = cv2.imread(os.path.join(self.imgDirDisparity, frame.replace('.jpg', '.png')), cv2.IMREAD_UNCHANGED)
         imgDisparity = imgDisparity.astype(float) / 256.
+
+        # To grayscale
+        imgLeft = cv2.cvtColor(imgLeft, cv2.COLOR_BGR2GRAY)
+        imgRight = cv2.cvtColor(imgRight, cv2.COLOR_BGR2GRAY)
+
+        # Fake the BGR values, because the model is expecting a colored image
+        imgLeft = np.repeat(imgLeft, 3).reshape(imgLeft.shape+(3,))
+        imgRight = np.repeat(imgRight, 3).reshape(imgRight.shape+(3,))
 
         # Resize while keeping original ratio and then crop to even pixel
         imgLeft = imgLeft[:400,:880]
@@ -156,12 +211,21 @@ class CameraDummyNode(Node):
         # left_cam_info.header.stamp = timestamp
         # left_cam_info.header.frame_id = "zed_left"
 
-        self.pubCameraLeft.publish(self.cameraInfos[0])
-        self.pubCameraRight.publish(self.cameraInfos[1])
+        if self.asRosbag:
+            timestamp_nano = int(timestamp.sec * 1e9 + timestamp.nanosec)
+            #self.log(f'{timestamp.sec}s + {timestamp.nanosec} ns: {timestamp_nano}')
+            self.writer.write(self.topicCameraLeft, serialize_message(self.cameraInfos[0]), timestamp_nano)
+            self.writer.write(self.topicCameraRight, serialize_message(self.cameraInfos[1]), timestamp_nano)
+            self.writer.write(self.topicImgLeft, serialize_message(imgMsgLeft), timestamp_nano)
+            self.writer.write(self.topicImgRight, serialize_message(imgMsgRight), timestamp_nano)
+            self.writer.write(self.topicDisparity, serialize_message(imgMsgDisparity), timestamp_nano)
+        else:
+            self.pubCameraLeft.publish(self.cameraInfos[0])
+            self.pubCameraRight.publish(self.cameraInfos[1])
 
-        self.pubImgLeft.publish(imgMsgLeft)
-        self.pubImgRight.publish(imgMsgRight)
-        self.pubDisparity.publish(imgMsgDisparity)
+            self.pubImgLeft.publish(imgMsgLeft)
+            self.pubImgRight.publish(imgMsgRight)
+            self.pubDisparity.publish(imgMsgDisparity)
         # self.pubDepthImage.publish(imgMsgDepth)
 
         # Compute depthmap and publish point cloud

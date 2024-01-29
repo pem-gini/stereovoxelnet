@@ -14,14 +14,14 @@ from rcl_interfaces.msg import ParameterType, ParameterDescriptor
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
 import logging
 import coloredlogs
-import time
+import struct
 from std_msgs.msg import Header
 from message_filters import TimeSynchronizer, Subscriber
 
 coloredlogs.install(level="DEBUG")
 torch.backends.cudnn.benchmark = True
 CURR_DIR = '/home/finn/pem/duckbrain_umbrella/ros2_ws/src/stereovoxelnet/stereovoxelnet'
-
+point_struct = struct.Struct("<fffBBBB")
 
 class StereoVoxelnetNode(Node):
     def __init__(self):
@@ -141,13 +141,12 @@ class StereoVoxelnetNode(Node):
 
     def predictionToPointcloud(self, vox_pred, grid_size):
         vox_pred = vox_pred.detach().cpu().numpy()
-        vox_pred[vox_pred < 0.5] = 0
-        vox_pred[vox_pred >= 0.5] = 1
 
         voxel_size = 32 / grid_size
         
         offsets = np.array([int(16/voxel_size), int(31/voxel_size), 0])
-        xyz_pred = np.asarray(np.where(vox_pred == 1)) # get back indexes of populated voxels
+        mask = np.where(vox_pred >= 0.5)
+        xyz_pred = np.asarray(mask) # get back indexes of populated voxels
         cloud = np.asarray([(pt-offsets)*voxel_size for pt in xyz_pred.T])
 
         self.log(f"Size of point cloud: {len(cloud)}, Level {self.level_i}")
@@ -160,13 +159,49 @@ class StereoVoxelnetNode(Node):
         header.frame_id = self.targetFrame
 
         # Create a PointCloud2 message
+        # fields = [
+        #     PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+        #     PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+        #     PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+        # ]
+
+                # Create a PointCloud2 message
         fields = [
             PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
             PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
             PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+            PointField(name='rgba', offset=12, datatype=PointField.UINT32, count=1)
         ]
+
+        buffer = bytearray(point_struct.size * len(points))
+        weights = vox_pred[mask]
+        for i, point in enumerate(points):
+            weight = weights[i]
+            color = [0, 0, 0, 0] # bgra
+            if weight >= 0.9:
+                color = [0,   0, 255, 255] # red
+            elif weight >= 0.8:
+                color = [0, 150, 255, 255] # orange
+            elif weight >= 0.7:
+                color = [0, 255, 255, 255] # yellow
+            elif weight >= 0.6:
+                color = [0, 255, 150, 255] # 
+            elif weight >= 0.5:
+                color = [0, 255,   0, 255]
+
+            point_struct.pack_into(buffer, i * point_struct.size, *point, *color)
         
-        return create_cloud(header, fields, points)
+        point_cloud = PointCloud2(header=header,
+                       height=1,
+                       width=len(points),
+                       is_dense=False,
+                       is_bigendian=False,
+                       fields=fields,
+                       point_step=point_struct.size,
+                       row_step=len(buffer),
+                       data=buffer)
+        
+        return point_cloud # create_cloud(header, fields, points)
 
 
     def imageCallback(self, msgImgLeft: Image, msgImgRight: Image):
@@ -205,11 +240,12 @@ class StereoVoxelnetNode(Node):
             self.log('Run prediction')
             voxel_sizes = [8,16, 32, 64]
             vox_pred = self.model(sample_left.cuda(), sample_right.cuda(), self.vox_cost_vol_disps)[0]
-            size_len = vox_pred[self.level_i][0].shape[0]
-            if torch.all(vox_pred[self.level_i][0][:,:,:int(size_len*0.5)] < 0.5) and self.level_i > 0:
-                self.level_i -= 1
-            elif self.level_i < 3:
-                self.level_i += 1
+            # size_len = vox_pred[self.level_i][0].shape[0]
+            # if torch.all(vox_pred[self.level_i][0][:,:,:int(size_len*0.5)] < 0.5) and self.level_i > 0:
+            #     self.level_i -= 1
+            # elif self.level_i < 3:
+            #     self.level_i += 1
+            self.level_i = 3
             assert(self.level_i >= 0 and self.level_i <= 3)
             vox_pred_level = vox_pred[self.level_i][0]
             print(f'Predicted level {self.level_i}')
